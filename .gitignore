@@ -14,5 +14,7 @@ data.json
 # Logs
 *.log
 
+package-lock.json
+
 # Node modules
 node_modules/
