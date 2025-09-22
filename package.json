@@ -1,0 +1,21 @@
+{
+  "name": "mandarake-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "private": true,
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.12.2",
+    "axios-cookiejar-support": "^6.0.4",
+    "cheerio": "^1.1.2",
+    "node-telegram-bot-api": "^0.63.0",
+    "puppeteer": "^24.22.0",
+    "tough-cookie": "^5.1.2"
+  }
+}
