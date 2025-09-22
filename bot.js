@@ -187,7 +187,6 @@ async function pollAll() {
                         await sleep(cfg.requestDelayMs);
                         continue;
                     }
-                    console.log('Pull by timer ------->', )
                     if (item.lastStatus === 'out' && nowStatus === 'in') {
                         // state changed -> notify user
                         let body = `
