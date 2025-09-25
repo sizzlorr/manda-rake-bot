@@ -4,10 +4,12 @@ const { load, save, ensureUser, nextId } = require('./storage');
 const { checkMandarake } = require('./scraper');
 const { readableDate } = require('./helper');
 const TelegramBot = require('node-telegram-bot-api');
+const { DateTime } = require('luxon');
+const logger = require('./logger');
 
 const cfg = require('./config.json');
 if (!cfg.botToken || cfg.botToken.includes('1234')) {
-    console.error('Put your BOT token into config.json -> botToken');
+    logger.error('Put your BOT token into config.json -> botToken');
     process.exit(1);
 }
 const bot = new TelegramBot(cfg.botToken, { polling: true });
@@ -157,14 +159,25 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
         }
         bot.sendMessage(chatId, msgOut);
     } catch (e) {
-        console.error('check error', e && e.message);
+        logger.error('check error', e && e.message);
         bot.sendMessage(chatId, 'Error checking URL: ' + (e && e.message));
     }
 });
 
-// --- scheduler ---
 let running = false;
+
+function isWithinWorkingHours() {
+    const nowInJapan = DateTime.now().setZone('Asia/Tokyo');
+    const hour = nowInJapan.hour;
+    return hour >= 6 && hour < 22;
+}
+
 async function pollAll() {
+    if (!isWithinWorkingHours()) {
+        logger.info("🌙 Outside Japan working hours (6:00–22:00 JST) — skipping checks.");
+        return;
+    }
+
     if (running) return;
     running = true;
     try {
@@ -176,10 +189,9 @@ async function pollAll() {
             for (const item of user.items) {
                 if (!item.enabled) continue;
                 try {
-                    // { url, isInStock, isInMainInStock, sameItemInOtherStores, itemName, parentShopName }
                     const res = await checkMandarake(item.url, { timeout: cfg.requestTimeoutMs, userAgent: cfg.userAgent });
                     const nowStatus = res.isInStock ? 'in' : 'out';
-                    // first-time initialize
+
                     if (!item.lastStatus || item.lastStatus === 'unknown') {
                         item.lastStatus = nowStatus;
                         item.lastChecked = new Date().toISOString();
@@ -187,8 +199,8 @@ async function pollAll() {
                         await sleep(cfg.requestDelayMs);
                         continue;
                     }
+
                     if (item.lastStatus === 'out' && nowStatus === 'in') {
-                        // state changed -> notify user
                         let body = `
                         🔥 Item now IN STOCK:\n
                         ${res.itemName}\n
@@ -196,26 +208,30 @@ async function pollAll() {
                         `;
                         if (res.isInMainInStock) body += `Available in ${res.parentShopName}\n`;
                         if (res.sameItemInOtherStores && res.sameItemInOtherStores.length) {
-                            const availableShops = res.sameItemInOtherStores.filter(s => s.hasAdd && !s.soldOut).map(s => `${s.shop} (${s.price || 'No price'})`);
-
-                            if (availableShops.length) body += `
-                            Other Store(s):\n 
-                            ${availableShops.join(', ')}\n
-                            `;
+                            const availableShops = res.sameItemInOtherStores
+                                .filter(s => s.hasAdd && !s.soldOut)
+                                .map(s => `${s.shop} (${s.price || 'No price'})`);
+                            if (availableShops.length) {
+                                body += `
+                                Other Store(s):\n
+                                ${availableShops.join(', ')}\n
+                                `;
+                            }
                         }
                         try {
                             await bot.sendMessage(chatId, body);
                         } catch (e) {
-                            console.error('tg notify error', e && e.message);
+                            logger.error('tg notify error', e && e.message);
                         }
                     }
+
                     item.lastStatus = nowStatus;
                     item.lastChecked = new Date().toISOString();
                     persist();
                     await sleep(cfg.requestDelayMs);
+
                 } catch (e) {
-                    console.error('item check error', item.url, e && e.message);
-                    // don't spam; mark lastChecked but leave lastStatus untouched
+                    logger.error('item check error', item.url, e && e.message);
                     item.lastChecked = new Date().toISOString();
                     persist();
                 }
@@ -228,13 +244,13 @@ async function pollAll() {
 
 // start periodic polling
 const intervalMs = (cfg.checkIntervalSec || 300) * 1000;
-console.log('Starting poll every', intervalMs / 1000, 'sec');
+logger.info(`Starting poll every ${intervalMs / 1000} sec`);
 setInterval(pollAll, intervalMs);
 pollAll(); // run immediately on start
 
 // graceful shutdown
 process.on('SIGINT', () => {
-    console.log('Shutting down...');
+    logger.info('Shutting down...');
     persist();
     process.exit(0);
 });

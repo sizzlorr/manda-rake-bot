@@ -1,6 +1,7 @@
 // scraper.js
 const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
+const logger = require('./logger');
 
 async function fetchHtml(url, opts = {}) {
     const browser = await puppeteer.launch({
@@ -40,7 +41,7 @@ async function fetchHtml(url, opts = {}) {
         await browser.close();
         return html;
     } catch (err) {
-        console.error('fetchHtml error:', err.message);
+        logger.error('fetchHtml error:', err.message);
         throw err;
     }
 }
