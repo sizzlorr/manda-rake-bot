@@ -155,7 +155,7 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
         Store: ${res.parentShopName}\n
         `;
         if (res.sameItemInOtherStores.length) {
-            msgOut += '\nOther stores:\n' + res.sameItemInOtherStores.map(s => `${s.shop} - ${s.hasAdd ? '✅' : '❌'} - ${s.price} `).join('\n');
+            msgOut += '\nOther stores:\n' + res.sameItemInOtherStores.map(s => `${s.shop} - ${s.hasAdd ? '✅' : '❌'} - ${s.price} ${s.isDefective ? '(defective item)' : ''}`).join('\n');
         }
         bot.sendMessage(chatId, msgOut);
     } catch (e) {
@@ -169,12 +169,12 @@ let running = false;
 function isWithinWorkingHours() {
     const nowInJapan = DateTime.now().setZone('Asia/Tokyo');
     const hour = nowInJapan.hour;
-    return hour >= 6 && hour < 22;
+    return hour >= 5 && hour < 23;
 }
 
 async function pollAll() {
     if (!isWithinWorkingHours()) {
-        logger.info("🌙 Outside Japan working hours (6:00–22:00 JST) — skipping checks.");
+        logger.info("🌙 Outside Japan working hours (5:00–23:00 JST) — skipping checks.");
         return;
     }
 

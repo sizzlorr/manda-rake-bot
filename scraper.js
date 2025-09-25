@@ -64,14 +64,26 @@ async function checkMandarake(url, opts = {}) {
 
     // Same Item in Other Store(s)
     const sameItemInOtherStores = [];
-    $('.other_itemlist .block').each((i, el) => {
-        const block = $(el);
-        const shop = block.find('.shop p').text().trim();
-        const price = block.find('.price').text().trim();
-        const hasAdd = block.find('.addcart').length > 0;
-        const soldOut = block.find('.soldout').length > 0;
+    const otherItemsEl = $('.other_item');
+    const otherItemsTitlesEls = otherItemsEl.find('h3');
+    const otherItemsListsEls = $('.other_itemlist');
 
-        sameItemInOtherStores.push({ shop, price, hasAdd, soldOut });
+    otherItemsListsEls.each((listIndex, listEl) => {
+        const $list = $(listEl);
+
+        // try to find a heading describing the block (h3 is typical)
+        let heading = otherItemsTitlesEls.eq(listIndex).text().trim().toLowerCase();
+
+        $list.find('.block').each((i, el) => {
+            const block = $(el);
+            const shop = block.find('.shop p').text().trim();
+            const price = block.find('.price').text().trim();
+            const hasAdd = block.find('.addcart').length > 0;
+            const soldOut = block.find('.soldout').length > 0;
+            const isDefective = heading.includes('diff');
+
+            sameItemInOtherStores.push({ shop, price, hasAdd, soldOut, isDefective });
+        });
     });
 
     const isInStock = isInMainInStock || sameItemInOtherStores.some(s => s.hasAdd && !s.soldOut);
