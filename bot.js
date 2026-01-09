@@ -70,23 +70,43 @@ bot.onText(/\/add (.+)/, async (msg, match) => {
     void bot.sendMessage(chatId, `Added item:\n[${id}] ${name}\n${url}`);
 });
 
-bot.onText(/\/list/, (msg) => {
+bot.onText(/\/list/, async (msg) => {
     const chatId = String(msg.chat.id);
     const user = ensureUser(db, chatId);
     if (!user.items.length) return bot.sendMessage(chatId, 'Your watch list is empty. Use /add');
-    let out = 'Your items:\n';
-    user.items.forEach(it => {
-        out += `
-        \n✦ ${it.name}
-        \n${it.id}
-        \n
-        ${it.url}\n
-        Enabled: ${it.enabled}\n
-        Last status: ${it.lastStatus === 'in' ? '✅ in' : '❌ out'}\n
-        Last Checked: ${it.lastChecked ? readableDate(it.lastChecked) : '-'}\n
-        `;
-    });
-    bot.sendMessage(chatId, out);
+
+    const CHUNK_SIZE = 10;
+    const chunks = [];
+
+    for (let i = 0; i < user.items.length; i += CHUNK_SIZE) {
+        chunks.push(user.items.slice(i, i + CHUNK_SIZE));
+    }
+
+    for (let i = 0; i < chunks.length; i++) {
+        let out = i === 0 ? `Your items (${user.items.length} total):\n` : '';
+
+        chunks[i].forEach(it => {
+            out += `
+✦ ${it.name}\n
+${it.id}
+${it.url}
+Enabled: ${it.enabled}
+Last status: ${it.lastStatus === 'in' ? '✅ in' : '❌ out'}
+Last Checked: ${it.lastChecked ? readableDate(it.lastChecked) : '-'}
+`;
+        });
+
+        if (chunks.length > 1) {
+            out += `\n— Page ${i + 1}/${chunks.length} —`;
+        }
+
+        await bot.sendMessage(chatId, out);
+
+        // Small delay between messages to avoid rate limiting
+        if (i < chunks.length - 1) {
+            await sleep(100);
+        }
+    }
 });
 
 bot.onText(/\/remove (.+)/, (msg, match) => {
