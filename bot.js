@@ -77,7 +77,9 @@ bot.onText(/\/list/, (msg) => {
     let out = 'Your items:\n';
     user.items.forEach(it => {
         out += `
-        \n${it.name}\n[${it.id}]\n
+        \n✦ ${it.name}
+        \n${it.id}
+        \n
         ${it.url}\n
         Enabled: ${it.enabled}\n
         Last status: ${it.lastStatus === 'in' ? '✅ in' : '❌ out'}\n
@@ -152,11 +154,12 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
         let msgOut = `
         Result for ${item ? item.name : url}:\n
         ${res.itemName}\n
+        ${item.id}\n
         In stock: ${res.isInStock ? '✅' : '❌'}\n
         Store: ${res.parentShopName}\n
         `;
         if (res.sameItemInOtherStores.length) {
-            msgOut += '\nOther stores:\n' + res.sameItemInOtherStores.map(s => `${s.shop} - ${s.hasAdd ? '✅' : '❌'} - ${s.price} ${s.isDefective ? '(defective item)' : ''}`).join('\n');
+            msgOut += '\nOther stores:\n' + res.sameItemInOtherStores.map(s => `${s.shop} - ${s.hasAdd ? '✅' : '❌'} - ${s.price} ${s.isDefective ? '(⚠️)' : ''}`).join('\n');
         }
         void bot.sendMessage(chatId, msgOut);
     } catch (e) {

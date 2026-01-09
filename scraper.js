@@ -3,77 +3,88 @@ const cheerio = require('cheerio');
 const puppeteer = require('puppeteer-core');
 const logger = require('./logger');
 
-async function fetchHtml(url, opts = {}) {
-    let browser;
-    try {
-        browser = await puppeteer.launch({
+// Reuse browser instance
+let browserInstance = null;
+
+async function getBrowser() {
+    if (!browserInstance || !browserInstance.isConnected()) {
+        browserInstance = await puppeteer.launch({
             headless: true,
             executablePath: '/usr/bin/chromium-browser', // server
-            // executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', // local
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            //executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', // local
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--disable-extensions',
+                '--no-first-run',
+            ],
+        });
+    }
+    return browserInstance;
+}
+
+// Cache session - skip steps 1 & 2 if already established
+let sessionReady = false;
+
+async function fetchHtml(url, opts = {}) {
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+
+    try {
+        await page.setRequestInterception(true);
+        page.on('request', request => {
+            const type = request.resourceType();
+            if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+                request.abort();
+            } else {
+                request.continue();
+            }
         });
 
-        const page = await browser.newPage();
         await page.setUserAgent(
-            opts.userAgent ||
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-            '(KHTML, like Gecko) Chrome/118.0.5993.90 Safari/537.36'
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         );
 
-        // Step 1: Visit main site to set cookies
-        await page.goto('https://www.mandarake.co.jp/', { waitUntil: 'networkidle2' });
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+        });
 
-        // Step 2: Visit order site with language
-        await page.goto('https://order.mandarake.co.jp/order/?lang=en', { waitUntil: 'networkidle2' });
-
-        // Step 3: Normalize URL → add lang=en if missing
-        let itemUrl = url;
-        try {
-            const u = new URL(url);
-            if (!u.searchParams.has('lang')) {
-                u.searchParams.set('lang', 'en');
-                itemUrl = u.toString();
-            }
-        } catch (err) {
-            logger.warn(`Invalid URL provided: ${url}`);
+        // Only establish session once
+        if (!sessionReady) {
+            await page.goto('https://www.mandarake.co.jp/en/', {
+                waitUntil: 'networkidle2',
+                timeout: 15000
+            });
+            await page.goto('https://order.mandarake.co.jp/order/?lang=en', {
+                waitUntil: 'networkidle0',
+                timeout: 15000
+            });
+            sessionReady = true;
         }
 
-        // Visit the item page
-        await page.goto(itemUrl, { waitUntil: 'networkidle2' });
+        const u = new URL(url);
+        u.searchParams.set('lang', 'en');
 
-        // Wait for main button or sold-out div to appear
-        await page.waitForSelector('.addcart, .soldout', { timeout: 5000 });
+        await page.goto(u.toString(), {
+            waitUntil: 'networkidle0',
+            timeout: 15000
+        });
+
+        await page.waitForSelector('#mypagelist_form, .other_item, .addcart, .soldout', { timeout: 10000 });
 
         return await page.content();
     } catch (err) {
+        sessionReady = false; // Reset on error
         logger.error(`fetchHtml error for ${url}: ${err.message}`);
         throw err;
     } finally {
-        if (browser) {
-            try {
-                await browser.close();
-            } catch (closeErr) {
-                logger.warn('Browser close failed:', closeErr.message);
-            }
-        }
+        await page.close().catch(() => {});
     }
 }
 
-/**
- * Check Mandarake product page for stock:
- * - main button (id=cartButton) with text カートに入れる or class addcart
- * - other stores in section .other_itemlist .block checking .addcart / .soldout
- *
- * Returns:
- *  {
- *    url,
- *    isInStock,
- *    isInMainInStock,
- *    sameItemInOtherStores: [{ shop, price, hasAdd, soldOut, isDefective }],
- *    itemName,
- *    parentShopName
- *  }
- */
 async function checkMandarake(url, opts = {}) {
     const html = await fetchHtml(url, opts);
     const $ = cheerio.load(html);
@@ -83,28 +94,35 @@ async function checkMandarake(url, opts = {}) {
     const itemName = $('.content_head .subject h1').text().trim();
 
     // Parse other item lists
+
+
     const sameItemInOtherStores = [];
-    const otherItemsEls = $('.other_item');
 
-    otherItemsEls.each((sectionIndex, sectionEl) => {
+    $('.other_item').each((_, sectionEl) => {
         const $section = $(sectionEl);
-        const heading = $section.find('h3').first().text().trim().toLowerCase();
 
-        const isDefective =
-            heading.includes('different condition') ||
-            heading.includes('defective') ||
-            heading.includes('diff');
+        // Process each h3 + following .other_itemlist pair
+        $section.find('h3').each((_, h3El) => {
+            const $h3 = $(h3El);
+            const heading = $h3.text().trim().toLowerCase();
+            const isDefective = /different condition|defective/.test(heading);
 
-        $section.find('.block').each((i, el) => {
-            const block = $(el);
-            const shop = block.find('.shop p').text().trim();
-            const price = block.find('.price').text().trim();
-            const hasAdd = block.find('.addcart').length > 0;
-            const soldOut = block.find('.soldout').length > 0;
+            // Get the .other_itemlist that immediately follows this h3
+            const $itemList = $h3.next('.other_itemlist');
 
-            sameItemInOtherStores.push({ shop, price, hasAdd, soldOut, isDefective });
+            $itemList.find('.block').each((_, el) => {
+                const block = $(el);
+                sameItemInOtherStores.push({
+                    shop: block.find('.shop p').text().trim(),
+                    price: block.find('.price').text().trim(),
+                    hasAdd: block.find('.addcart').length > 0,
+                    soldOut: block.find('.soldout').length > 0,
+                    isDefective
+                });
+            });
         });
     });
+
 
     const isInStock =
         isInMainInStock || sameItemInOtherStores.some(s => s.hasAdd && !s.soldOut);
