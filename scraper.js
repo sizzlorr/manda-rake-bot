@@ -19,6 +19,8 @@ async function getBrowser() {
                 '--disable-dev-shm-usage',
                 '--disable-extensions',
                 '--no-first-run',
+                '--disable-software-rasterizer', // for Pi
+                '--single-process', // for Pi
             ],
         });
     }
